@@ -1,6 +1,9 @@
 @file:JvmName("MatrixKt")
-
 package org.example
+import kotlin.random.Random
+import kotlin.system.measureTimeMillis
+
+val crossover_point = 64
 
 /**
  * Class implementation of Matrix interface with various matrix arithmetic functions (multiply, subtract, add), and
@@ -226,61 +229,119 @@ class ArrayMatrix(override val n: Int, override val m: Int): Matrix {
         }
     }
 
+    /**
+     *
+     * Hybrid version of Strassen matrix multiplication that switches to conventional multiplication for small matricies.
+     *
+     * @param other the other matrix being multiplied.
+     * @return finalResult the resulting matrix after hybrid method
+     */
+    fun hybridStrassenMultiply(other: Matrix): Matrix? {
+        // Basic checks remain the same
+        if (this.n != other.n || this.m != other.m || this.n != this.m) return null
+
+        // crossover point, this defines the hybrid moment
+        if (n <= crossover_point) {
+            return this.multiply(other)
+        }
+
+        // must be power of 2
+        val isPowerOfTwo = n > 0 && (n and (n - 1)) == 0
+        if (!isPowerOfTwo) {
+            println("Warning: Matrix size is not a power of two. Falling back to standard multiplication.")
+            return this.multiply(other)
+        }
+
+        // The rest of the logic is identical to your original strassenMultiply
+        val newSize = n / 2
+
+        // using SubMatrix recursive function
+        val A11 = this.subMatrix(0, 0, newSize)
+        val A12 = this.subMatrix(0, newSize, newSize)
+        val A21 = this.subMatrix(newSize, 0, newSize)
+        val A22 = this.subMatrix(newSize, newSize, newSize)
+
+        val B11 = other.subMatrix(0, 0, newSize)
+        val B12 = other.subMatrix(0, newSize, newSize)
+        val B21 = other.subMatrix(newSize, 0, newSize)
+        val B22 = other.subMatrix(newSize, newSize, newSize)
+
+        // using recursive call for Strassen multiplication
+        val P1 = (A11 as ArrayMatrix).hybridStrassenMultiply(B12.minus(B22))!!
+        val P2 = (A11.plus(A12) as ArrayMatrix).hybridStrassenMultiply(B22)!!
+        val P3 = (A21.plus(A22) as ArrayMatrix).hybridStrassenMultiply(B11)!!
+        val P4 = (A22 as ArrayMatrix).hybridStrassenMultiply(B21.minus(B11))!!
+        val P5 = (A11.plus(A22) as ArrayMatrix).hybridStrassenMultiply(B11.plus(B22))!!
+        val P6 = (A12.minus(A22) as ArrayMatrix).hybridStrassenMultiply(B21.plus(B22))!!
+        val P7 = (A11.minus(A21) as ArrayMatrix).hybridStrassenMultiply(B11.plus(B12))!!
+
+        // recombining
+        val C11 = P5 + P4 - P2 + P6
+        val C12 = P1 + P2
+        val C21 = P3 + P4
+        val C22 = P5 + P1 - P3 - P7
+
+        // inserting into final result matrix
+        val finalResult = ArrayMatrix(n, m)
+        for (i in 0 until newSize) {
+            for (j in 0 until newSize) {
+                finalResult[i, j] = C11[i, j]
+            }
+        }
+        for (i in 0 until newSize) {
+            for (j in newSize until n) {
+                finalResult[i, j] = C12[i, j - newSize]
+            }
+        }
+        for (i in newSize until n) {
+            for (j in 0 until newSize) {
+                finalResult[i, j] = C21[i - newSize, j]
+            }
+        }
+        for (i in newSize until n) {
+            for (j in newSize until n) {
+                finalResult[i, j] = C22[i - newSize, j - newSize]
+            }
+        }
+
+        return finalResult
+    }
 }
 
 /**
- *
- * Strassen multiplication vs regular multiplication
+ * Runtime benchmarking function used to compare conventional and Strassen matrix multiplication.
  */
+fun runBenchmarks() {
+    // test for matrix sizes from 2x2 up to 1024x1024
+    val sizes = (1..10).map { 1 shl it }
+
+    println("--- Algorithm Benchmarks ---")
+    println("Size   Conventional (ms)\tStrassen (ms)\tHybrid Strassen (ms)")
+    println("------|---------------|-----------------|----------------")
+
+    for (n in sizes) {
+        // create two nxn matrices with random values
+        val matrixA = ArrayMatrix(n, n)
+        val matrixB = ArrayMatrix(n, n)
+        val matrixC = ArrayMatrix(n,n)
+        for (i in 0 until n) {
+            for (j in 0 until n) {
+                matrixA[i, j] = Random.nextDouble()
+                matrixB[i, j] = Random.nextDouble()
+                matrixC[i, j] = Random.nextDouble()
+            }
+        }
+
+        val conventionalTime = measureTimeMillis {matrixA.multiply(matrixB)}
+
+        val strassenTime = measureTimeMillis {matrixA.strassenMultiply(matrixB)}
+
+        val strassenHybridTime = measureTimeMillis {matrixA.hybridStrassenMultiply(matrixC)}
+
+        println("$n\t\t\t$conventionalTime\t\t\t\t\t\t$strassenTime\t\t\t\t\t\t\t$strassenHybridTime")
+    }
+}
+
 fun main() {
-    // making default matrix types
-    val data1: Array<IntArray> = arrayOf(
-        intArrayOf(1,2,3,1),
-        intArrayOf(4,5,6,2),
-        intArrayOf(7,8,9,3),
-        intArrayOf(3,4,5,6)
-    )
-
-    val data2: Array<IntArray> = arrayOf(
-        intArrayOf(1,3,5,4),
-        intArrayOf(7,9,2,5),
-        intArrayOf(4,6,8,6),
-        intArrayOf(1,2,3,4)
-    )
-
-    // creating instances of ArrayMatrix class and populating with data for both test matrices
-    val matrix1 = ArrayMatrix(4, 4)
-    for (i in 0..2) {
-        for (j in 0..2) {
-            matrix1[i, j] = data1[i][j].toDouble()
-        }
-    }
-
-    val matrix2 = ArrayMatrix(4, 4)
-    for (i in 0..2) {
-        for (j in 0..2) {
-            matrix2[i, j] = data2[i][j].toDouble()
-        }
-    }
-
-    //printing current matrices
-    println("Matrix 1:\n$matrix1")
-    println("Matrix 2:\n$matrix2")
-
-    //summing matrices
-    val sum = matrix1 + matrix2
-
-
-    //taking difference of matrices
-    val difference = matrix1 - matrix2
-    println("Difference (matrix1 - matrix2):\n$difference")
-
-    // taking traditional product of matrices
-    val product = matrix1.multiply(matrix2)
-    println("Product (matrix1 * matrix2):\n$product")
-
-    // taking Strassen product of matrices
-    val strassenProduct = matrix1.strassenMultiply(matrix2)
-    println("Strassen Product (matrix1 * matrix2):\n$strassenProduct")
-
+    runBenchmarks()
 }
